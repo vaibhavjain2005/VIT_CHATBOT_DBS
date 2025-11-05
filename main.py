@@ -7,10 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from models.schemas import QueryRequest, QueryResponse, HealthResponse
-from services.firebase_service import FirebaseService
+from services.mongodb_service import MongoDBService
 from services.ai_service import AIService
 from utils.embeddings import initialize_embedding_model, generate_query_embedding
-from utils.text_processing import extract_rank
+from utils.text_processing import extract_rank, extract_year
 
 load_dotenv()
 
@@ -29,16 +29,17 @@ app.add_middleware(
 )
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-FIREBASE_CREDENTIALS_PATH = os.getenv("FIREBASE_CREDENTIALS_PATH", "firebase-credentials.json")
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/")
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-mpnet-base-v2")
 
-firebase_service = None
+db_service = None
 ai_service = None
 
 
 @app.on_event("startup")
 async def startup_event():
-    global firebase_service, ai_service
+    global db_service, ai_service
     
     print("=" * 60)
     print("VIT Counseling Assistant API - Starting Up")
@@ -49,13 +50,15 @@ async def startup_event():
     except Exception as e:
         print(f"Warning: Could not initialize embedding model: {e}")
     
-    firebase_service = FirebaseService(FIREBASE_CREDENTIALS_PATH)
+    db_service = MongoDBService(MONGODB_URL)
     
-    if GEMINI_API_KEY:
-        ai_service = AIService(GEMINI_API_KEY)
+    if GEMINI_API_KEY or GROQ_API_KEY:
+        ai_service = AIService(GEMINI_API_KEY, GROQ_API_KEY)
+        if GROQ_API_KEY:
+            print("GROQ API key found - will attempt to use GROQ as primary LLM")
     else:
-        print("Warning: GEMINI_API_KEY not set. AI features will use fallback logic.")
-        ai_service = AIService("")
+        print("Warning: Neither GEMINI_API_KEY nor GROQ_API_KEY set. AI features will use fallback logic.")
+        ai_service = AIService("", "")
     
     print("=" * 60)
     print("Startup complete!")
@@ -69,45 +72,107 @@ def predict_branches(rank: int, cutoffs: List[Dict]) -> List[Dict]:
         rank_min = cutoff["rank_range"][0]
         rank_max = cutoff["rank_range"][1]
         
-        position = (rank - rank_min) / (rank_max - rank_min) if rank_max > rank_min else 0.5
-        
-        if position <= 0.3:
-            confidence = "High"
-            confidence_score = 0.9
-        elif position <= 0.6:
-            confidence = "Good"
-            confidence_score = 0.7
-        elif position <= 0.85:
-            confidence = "Moderate"
-            confidence_score = 0.5
+        # Calculate relative position and distance
+        if rank >= rank_min and rank <= rank_max:
+            # Within range - calculate position within range
+            position = (rank - rank_min) / (rank_max - rank_min)
+            if position <= 0.3:
+                confidence = "Very High"
+                confidence_score = 0.95
+            elif position <= 0.6:
+                confidence = "High"
+                confidence_score = 0.85
+            elif position <= 0.85:
+                confidence = "Good"
+                confidence_score = 0.75
+            else:
+                confidence = "Moderate"
+                confidence_score = 0.6
         else:
-            confidence = "Borderline"
-            confidence_score = 0.3
-        
+            # Outside range - calculate distance-based confidence
+            if rank < rank_min:
+                distance = rank_min - rank
+                if distance <= 1000:
+                    confidence = "Possible"
+                    confidence_score = 0.4
+                elif distance <= 2000:
+                    confidence = "Low"
+                    confidence_score = 0.2
+                else:
+                    confidence = "Very Low"
+                    confidence_score = 0.1
+            else:  # rank > rank_max
+                distance = rank - rank_max
+                if distance <= 1000:
+                    confidence = "Possible"
+                    confidence_score = 0.4
+                elif distance <= 2000:
+                    confidence = "Low"
+                    confidence_score = 0.2
+                else:
+                    confidence = "Very Low"
+                    confidence_score = 0.1
+        trend = cutoff.get("trend", {})
+        historical = trend.get("historical", [])
+        prediction = trend.get("prediction", {})
+        # ✅ Add trend data from cutoff
         predictions.append({
             "campus": cutoff["campus"],
             "branch": cutoff["branch"],
             "category": cutoff["category"],
+            "year": cutoff.get("year"),  # ✅ Add year
             "rank_range": cutoff["rank_range"],
+            "seats": cutoff.get("seats"),  # ✅ Add seats
+            "filled": cutoff.get("filled"),  # ✅ Add filled
             "confidence": confidence,
-            "confidence_score": confidence_score
+            "confidence_score": confidence_score,
+             # ✅ Add trend data
+            "historical_trends": historical,
+            "prediction": prediction
         })
     
     predictions.sort(key=lambda x: x["confidence_score"], reverse=True)
     return predictions
 
-
-def format_predictions_for_ai(predictions: List[Dict], rank: int) -> str:
+def format_predictions_for_ai(predictions: List[Dict], rank: int, db_service: MongoDBService) -> str:
     if not predictions:
-        return f"No branch predictions found for rank {rank}."
+        return f"No branch predictions found for rank {rank}. Please check the VIT official website for the most up-to-date information."
     
     context = f"Student's VITEEE Rank: {rank}\n\nELIGIBLE BRANCHES:\n\n"
     
     for i, pred in enumerate(predictions[:8], 1):
+        # Get historical trends
+        trends = db_service.get_year_wise_trends(
+            branch=pred['branch'],
+            campus=pred['campus'],
+            category=pred['category']
+        )
+        
+        # Get future prediction
+        prediction = db_service.predict_rank_range(
+            branch=pred['branch'],
+            campus=pred['campus'],
+            category=pred['category']
+        )
+        
         context += f"{i}. {pred['branch']} - {pred['campus']}\n"
         context += f"   Category: {pred['category']}\n"
-        context += f"   Rank Range: {pred['rank_range'][0]} - {pred['rank_range'][1]}\n"
-        context += f"   Admission Chance: {pred['confidence']}\n\n"
+        context += f"   Current Rank Range: {pred['rank_range'][0]} - {pred['rank_range'][1]}\n"
+        context += f"   Admission Chance: {pred['confidence']}\n"
+        
+        if trends and trends.get("trends"):
+            latest_trends = trends["trends"][-2:]  # Last 2 years
+            context += f"   Historical Trend: "
+            for trend in latest_trends:
+                context += f"{trend['year']}: {trend['min_rank']}-{trend['max_rank']} | "
+            context += "\n"
+        
+        if prediction:
+            context += f"   2026 Prediction: {prediction['predicted_min_rank']}-{prediction['predicted_max_rank']}\n"
+            context += f"   Trend: {prediction['trend']} ({prediction['avg_yearly_change']}% per year)\n"
+            context += f"   Prediction Confidence: {prediction['confidence']}\n"
+        
+        context += "\n"
     
     return context
 
@@ -130,7 +195,7 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat(),
         "services": {
-            "firebase": "connected" if firebase_service and firebase_service.is_connected() else "unavailable",
+            "database": "connected" if db_service and db_service.is_connected() else "unavailable",
             "ai": "connected" if ai_service and ai_service.is_available() else "fallback_mode",
             "embeddings": "ready"
         }
@@ -162,19 +227,19 @@ async def process_query(request: QueryRequest):
     
     if intent == "rank_prediction":
         rank = extract_rank(query)
-        
+        year = extract_year(query) or request.year  # Get year from request
         if rank:
-            print(f"🔢 Rank: {rank}")
-            
-            cutoffs = firebase_service.get_cutoffs_by_rank(rank)
+            print(f"🔢 Rank: {rank}, Year: {year}")
+
+            cutoffs = db_service.get_cutoffs_by_rank(rank, year=year)
             
             if cutoffs:
                 predictions = predict_branches(rank, cutoffs)
-                context = format_predictions_for_ai(predictions, rank)
+                context = format_predictions_for_ai(predictions, rank, db_service)
                 
                 answer = ai_service.generate_response(query, context, "rank_prediction")
                 
-                firebase_service.log_query({
+                db_service.log_query({
                     "query": query,
                     "intent": intent,
                     "rank": rank,
@@ -186,10 +251,13 @@ async def process_query(request: QueryRequest):
                     answer=answer,
                     intent="rank_prediction",
                     confidence=confidence,
+                    year=year or db_service.get_latest_year(),
                     rank_prediction={
                         "rank": rank,
-                        "predictions": predictions[:5]
+                        "predictions": predictions
                     },
+                    has_historical_data=any(len(p.get("historical_trends", [])) > 0 for p in predictions[:5]),
+                    has_prediction=any(p.get("prediction") is not None for p in predictions[:5]),
                     processing_time_ms=(time.time() - start_time) * 1000
                 )
             else:
@@ -210,7 +278,7 @@ async def process_query(request: QueryRequest):
     
     elif intent == "cutoff":
         query_embedding = generate_query_embedding(query)
-        cutoff_results = firebase_service.vector_search_cutoffs(query_embedding, top_k=5)
+        cutoff_results = db_service.vector_search_cutoffs(query_embedding, top_k=5)
         
         if cutoff_results:
             context = "\n\n".join([
@@ -223,7 +291,7 @@ async def process_query(request: QueryRequest):
         else:
             answer = "I don't have cutoff information for that query. Please check the official VIT website."
         
-        firebase_service.log_query({
+        db_service.log_query({
             "query": query,
             "intent": intent,
             "user_id": user_id,
@@ -239,7 +307,7 @@ async def process_query(request: QueryRequest):
     
     else:
         query_embedding = generate_query_embedding(query)
-        faq_results = firebase_service.vector_search_faqs(query_embedding, top_k=3)
+        faq_results = db_service.vector_search_faqs(query_embedding, top_k=3)
         
         if faq_results and faq_results[0]['score'] > 0.7:
             context = "\n\n".join([
@@ -251,7 +319,7 @@ async def process_query(request: QueryRequest):
         else:
             answer = "I don't have specific information about that. Please check the official VIT website or contact admissions."
         
-        firebase_service.log_query({
+        db_service.log_query({
             "query": query,
             "intent": intent,
             "user_id": user_id,

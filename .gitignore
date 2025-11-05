@@ -22,7 +22,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 PYTHON
-
+main.py
 # Virtual Environment
 .env
 .venv
@@ -31,7 +31,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-
+myenv/
 # PyCharm
 .idea/
 

@@ -4,9 +4,9 @@ import numpy as np
 try:
     from sentence_transformers import SentenceTransformer
     EMBEDDING_MODEL = None
-    EMBEDDING_DIMENSION = 384
+    EMBEDDING_DIMENSION = 768
     
-    def initialize_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
+    def initialize_embedding_model(model_name: str = "all-mpnet-base-v2"):
         global EMBEDDING_MODEL, EMBEDDING_DIMENSION
         if EMBEDDING_MODEL is None:
             print(f"Loading Sentence Transformer model: {model_name}...")
@@ -18,9 +18,9 @@ try:
 except ImportError:
     print("Warning: sentence-transformers not available. Using fallback embeddings.")
     EMBEDDING_MODEL = None
-    EMBEDDING_DIMENSION = 384
+    EMBEDDING_DIMENSION = 768
     
-    def initialize_embedding_model(model_name: str = "all-MiniLM-L6-v2"):
+    def initialize_embedding_model(model_name: str = "all-mpnet-base-v2"):
         print("Sentence Transformers not available. Using random embeddings for development.")
         return None
 
