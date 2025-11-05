@@ -68,7 +68,7 @@ class GroqService:
 Analyze this query and classify it:
 - "cutoff" - Questions about admission cutoffs or closing ranks
 - "rank_prediction" - Student provides rank, wants eligible branches
-- "faq" - Questions about hostel, FFCS, clubs, campus life, fees,counselling,general,counselling,seat allotment
+- "faq" - Questions about hostel, FFCS, clubs, campus life, fees,counselling,general,counselling,seat allotment, admission process 
 
 Query: "{query}"
 This is an example:

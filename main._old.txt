@@ -47,27 +47,25 @@ async def startup_event():
     
     try:
         initialize_embedding_model(EMBEDDING_MODEL_NAME)
-        print(f"✅ Embedding model initialized: {EMBEDDING_MODEL_NAME}")
     except Exception as e:
-        print(f"⚠️  Warning: Could not initialize embedding model: {e}")
+        print(f"Warning: Could not initialize embedding model: {e}")
     
     db_service = MongoDBService(MONGODB_URL)
     
     if GEMINI_API_KEY or GROQ_API_KEY:
         ai_service = AIService(GEMINI_API_KEY, GROQ_API_KEY)
         if GROQ_API_KEY:
-            print("✅ GROQ API key found - will attempt to use GROQ as primary LLM")
+            print("GROQ API key found - will attempt to use GROQ as primary LLM")
     else:
-        print("⚠️  Warning: Neither GEMINI_API_KEY nor GROQ_API_KEY set. AI features will use fallback logic.")
+        print("Warning: Neither GEMINI_API_KEY nor GROQ_API_KEY set. AI features will use fallback logic.")
         ai_service = AIService("", "")
     
     print("=" * 60)
-    print("✅ Startup complete!")
+    print("Startup complete!")
     print("=" * 60)
 
 
 def predict_branches(rank: int, cutoffs: List[Dict]) -> List[Dict]:
-    """Predict branch eligibility based on rank - NO seat filtering"""
     predictions = []
     
     for cutoff in cutoffs:
@@ -114,19 +112,21 @@ def predict_branches(rank: int, cutoffs: List[Dict]) -> List[Dict]:
                 else:
                     confidence = "Very Low"
                     confidence_score = 0.1
-        
         trend = cutoff.get("trend", {})
         historical = trend.get("historical", [])
         prediction = trend.get("prediction", {})
-        
+        # ✅ Add trend data from cutoff
         predictions.append({
             "campus": cutoff["campus"],
             "branch": cutoff["branch"],
             "category": cutoff["category"],
-            "year": cutoff.get("year"),
+            "year": cutoff.get("year"),  # ✅ Add year
             "rank_range": cutoff["rank_range"],
+            "seats": cutoff.get("seats"),  # ✅ Add seats
+            "filled": cutoff.get("filled"),  # ✅ Add filled
             "confidence": confidence,
             "confidence_score": confidence_score,
+             # ✅ Add trend data
             "historical_trends": historical,
             "prediction": prediction
         })
@@ -134,15 +134,13 @@ def predict_branches(rank: int, cutoffs: List[Dict]) -> List[Dict]:
     predictions.sort(key=lambda x: x["confidence_score"], reverse=True)
     return predictions
 
-
 def format_predictions_for_ai(predictions: List[Dict], rank: int, db_service: MongoDBService) -> str:
     if not predictions:
         return f"No branch predictions found for rank {rank}. Please check the VIT official website for the most up-to-date information."
     
-    context = f"Student's VITEEE Rank: {rank}\n\nELIGIBLE BRANCHES (Showing ALL possibilities):\n\n"
+    context = f"Student's VITEEE Rank: {rank}\n\nELIGIBLE BRANCHES:\n\n"
     
-    # Show up to 15 branches for comprehensive view
-    for i, pred in enumerate(predictions[:15], 1):
+    for i, pred in enumerate(predictions[:8], 1):
         # Get historical trends
         trends = db_service.get_year_wise_trends(
             branch=pred['branch'],
@@ -229,7 +227,7 @@ async def process_query(request: QueryRequest):
     
     if intent == "rank_prediction":
         rank = extract_rank(query)
-        year = extract_year(query) or request.year
+        year = extract_year(query) or request.year  # Get year from request
         if rank:
             print(f"🔢 Rank: {rank}, Year: {year}")
 
@@ -246,8 +244,7 @@ async def process_query(request: QueryRequest):
                     "intent": intent,
                     "rank": rank,
                     "user_id": user_id,
-                    "response_length": len(answer),
-                    "results_count": len(predictions)
+                    "response_length": len(answer)
                 })
                 
                 return QueryResponse(
@@ -298,8 +295,7 @@ async def process_query(request: QueryRequest):
             "query": query,
             "intent": intent,
             "user_id": user_id,
-            "response_length": len(answer),
-            "results_count": len(cutoff_results)
+            "response_length": len(answer)
         })
         
         return QueryResponse(
@@ -309,18 +305,16 @@ async def process_query(request: QueryRequest):
             processing_time_ms=(time.time() - start_time) * 1000
         )
     
-    else:  # FAQ intent
+    else:
         query_embedding = generate_query_embedding(query)
-        # Get MORE FAQs for better AI context (increased from 3 to 5)
-        faq_results = db_service.vector_search_faqs(query_embedding, top_k=5)
+        faq_results = db_service.vector_search_faqs(query_embedding, top_k=3)
         
-        if faq_results and faq_results[0]['score'] > 0.5:
-            # Provide ALL relevant FAQ context to AI
-            context = "RELEVANT FAQ INFORMATION:\n\n"
-            for i, r in enumerate(faq_results, 1):
-                context += f"{i}. Q: {r['question']}\n   A: {r['answer']}\n   (Relevance: {r['score']:.2f})\n\n"
+        if faq_results and faq_results[0]['score'] > 0.7:
+            context = "\n\n".join([
+                f"Q: {r['question']}\nA: {r['answer']}"
+                for r in faq_results[:2]
+            ])
             
-            # Let AI generate answer using ALL the FAQ information
             answer = ai_service.generate_response(query, context, "faq")
         else:
             answer = "I don't have specific information about that. Please check the official VIT website or contact admissions."
@@ -329,8 +323,7 @@ async def process_query(request: QueryRequest):
             "query": query,
             "intent": intent,
             "user_id": user_id,
-            "response_length": len(answer),
-            "results_count": len(faq_results)
+            "response_length": len(answer)
         })
         
         return QueryResponse(

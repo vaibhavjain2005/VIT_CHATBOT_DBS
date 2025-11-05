@@ -111,7 +111,9 @@ class MongoDBService:
                     '$max': {'max_rank': cutoff_data['rank_range'][1]},
                     '$push': {'rank_points': avg_rank},
                     '$set': {
-                        'last_updated': datetime.utcnow()
+                        'last_updated': datetime.utcnow(),
+                        'seats': cutoff_data.get('seats'),
+                        'filled': cutoff_data.get('filled')
                     }
                 },
                 upsert=True
@@ -119,16 +121,11 @@ class MongoDBService:
         except Exception as e:
             print(f"Error updating trends: {e}")
     
-    def vector_search_faqs(self, query_embedding: List[float], top_k: int = 8) -> List[Dict]:
-        """Search FAQs using vector similarity - returns MORE results for comprehensive AI context"""
+    def vector_search_faqs(self, query_embedding: List[float], top_k: int = 3) -> List[Dict]:
         if not self.is_connected():
             return []
         try:
             docs = list(self.faqs_collection.find({}))
-            
-            if not docs:
-                print("⚠️  No FAQ documents found in database")
-                return []
             
             results = []
             for doc in docs:
@@ -142,9 +139,7 @@ class MongoDBService:
                         'score': similarity
                     })
             
-            # Sort by similarity and return top results
             results.sort(key=lambda x: x['score'], reverse=True)
-            print(f"📊 Found {len(results)} FAQ matches, returning top {min(top_k, len(results))}")
             return results[:top_k]
         
         except Exception as e:
@@ -179,31 +174,30 @@ class MongoDBService:
             return []
     
     def get_cutoffs_by_rank(self, rank: int, year: Optional[int] = None) -> List[Dict]:
-        """Get ALL possible branches for a rank - NO SEAT FILTERING"""
+        """Get cutoffs for a given rank and optionally for a specific year."""
         if not self.is_connected():
             return []
         
         try:
             # Build query to get branches within and near the rank
-            # Expanded buffer to show more possibilities
-            buffer = 5000  # Increased buffer for more options
+            buffer = 2000  # Allow some flexibility in rank ranges
             query = {
                 "$or": [
-                    # Direct matches (within range)
+                    # Direct matches (High chance)
                     {
                         "$and": [
                             {"rank_range.0": {"$lte": rank}},
                             {"rank_range.1": {"$gte": rank}}
                         ]
                     },
-                    # Just above range (possible with waitlist/next round)
+                    # Just above range (Moderate chance)
                     {
                         "$and": [
                             {"rank_range.0": {"$gt": rank}},
                             {"rank_range.0": {"$lte": rank + buffer}}
                         ]
                     },
-                    # Just below range (if cutoffs drop)
+                    # Just below range (Low chance)
                     {
                         "$and": [
                             {"rank_range.1": {"$lt": rank}},
@@ -213,6 +207,7 @@ class MongoDBService:
                 ]
             }
 
+            # Prepare latest_year variable
             latest_year = None
 
             # Add year filter if specified
@@ -225,7 +220,7 @@ class MongoDBService:
                 if latest_year:
                     query["year"] = latest_year
             
-            # Find matching cutoffs - NO seat filtering
+            # Find matching cutoffs
             docs = self.cutoffs_collection.find(query)
             
             results = []
@@ -245,11 +240,12 @@ class MongoDBService:
                     'branch': doc.get('branch', ''),
                     'category': doc.get('category', ''),
                     'rank_range': doc.get('rank_range', []),
+                    'seats': doc.get('seats'),
+                    'filled': doc.get('filled'),
                     'answer': doc.get('answer', ''),
                     'trend': trend_info
                 })
             
-            print(f"📊 Found {len(results)} branches for rank {rank}")
             return results
             
         except Exception as e:
@@ -288,7 +284,9 @@ class MongoDBService:
                     "$project": {
                         "year": 1,
                         "min_rank": {"$arrayElemAt": ["$rank_range", 0]},
-                        "max_rank": {"$arrayElemAt": ["$rank_range", 1]}
+                        "max_rank": {"$arrayElemAt": ["$rank_range", 1]},
+                        "seats": 1,
+                        "filled": 1
                     }
                 },
                 {
@@ -303,7 +301,9 @@ class MongoDBService:
                                     2
                                 ]
                             }
-                        }
+                        },
+                        "seats": {"$first": "$seats"},
+                        "filled": {"$first": "$filled"}
                     }
                 }
             ]
@@ -321,7 +321,9 @@ class MongoDBService:
                     "year": year_data["_id"],
                     "min_rank": year_data["min_rank"],
                     "max_rank": year_data["max_rank"],
-                    "avg_rank": year_data["avg_rank"]
+                    "avg_rank": year_data["avg_rank"],
+                    "seats": year_data.get("seats"),
+                    "filled": year_data.get("filled")
                 }
                 
                 if i > 0:
@@ -402,24 +404,34 @@ class MongoDBService:
 
     # --- Compatibility wrappers ---
     def get_year_wise_trends(self, branch: str, campus: str, category: str) -> Dict:
-        """Compatibility wrapper that returns year-wise trends in the shape expected by older code."""
+        """Compatibility wrapper that returns year-wise trends in the shape expected by older code.
+
+        Returns: {"trends": [...], "prediction": {...}}
+        """
         if not self.is_connected():
             return {}
 
         try:
+            # Use existing get_trend_info to fetch historical + prediction
+            # get_trend_info requires a current_year; use latest year available
             latest = self.get_latest_year() or datetime.utcnow().year
             info = self.get_trend_info(branch, campus, category, latest)
 
+            # get_trend_info returns {"historical": [...], "prediction": {...}}
             historical = info.get("historical", [])
             prediction = info.get("prediction")
 
+            # Normalize to expected shape
             return {"trends": historical, "prediction": prediction}
         except Exception as e:
             print(f"Error in get_year_wise_trends: {e}")
             return {}
 
     def predict_rank_range(self, branch: str, campus: str, category: str) -> Dict:
-        """Compatibility wrapper that returns predicted rank range."""
+        """Compatibility wrapper that returns predicted rank range and summary fields expected by older scripts.
+
+        Returns: {predicted_min_rank, predicted_max_rank, confidence, trend, avg_yearly_change}
+        """
         if not self.is_connected():
             return {}
 

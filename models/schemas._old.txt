@@ -29,6 +29,8 @@ class TrendInfo(BaseModel):
     min_rank: int
     max_rank: int
     avg_rank: float
+    seats: Optional[int]
+    filled: Optional[int]
     yoy_change: Optional[float]
 
 class PredictionInfo(BaseModel):
@@ -45,6 +47,8 @@ class BranchPrediction(BaseModel):
     category: str
     year: int
     rank_range: List[int]
+    seats: Optional[int] = None
+    filled: Optional[int] = None
     confidence: str
     confidence_score: float
     historical_trends: List[TrendInfo] = []
