@@ -9,7 +9,7 @@ class GroqService:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.endpoint = "https://api.groq.com/openai/v1/chat/completions"
-        self.model = "llama-3.1-8b-instant"  # or "llama3-70b-8192"
+        self.model = "llama-3.3-70b-versatile"  # or "llama3-70b-8192"
         self.available = bool(api_key)
 
     def is_available(self) -> bool:

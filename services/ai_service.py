@@ -12,10 +12,9 @@ class AIService:
         self.model = None
         self._initialize()
 
-    # -------------------- Initialization -------------------- #
     def _initialize(self):
         if self.groq.is_available():
-            print("Groq API available — using Groq as primary LLM.")
+            print("Groq API available – using Groq as primary LLM.")
             return
 
         try:
@@ -30,13 +29,9 @@ class AIService:
     def is_available(self) -> bool:
         return self.model is not None
 
-    # -------------------- Intent Classification -------------------- #
     def classify_intent(self, query: str) -> Dict:
-        """
-        Classifies the user's query into one of the predefined intents using Groq first,
-        then falls back to Gemini, and finally to basic keyword logic if both fail.
-        """
-        # ✅ Try Groq first
+        """Classify user intent using Groq first, then Gemini, then fallback"""
+        # Try Groq first
         if hasattr(self, "groq") and self.groq.is_available():
             try:
                 result = self.groq.classify_intent(query)
@@ -46,7 +41,7 @@ class AIService:
             except Exception as e:
                 print(f"Groq intent classification error: {e}")
 
-        # ✅ Fallback to Gemini if available
+        # Fallback to Gemini
         if self.is_available():
             prompt = f"""You are an intent classifier for VIT admission queries.
 
@@ -78,7 +73,7 @@ Respond ONLY with valid JSON:
             except Exception as e:
                 print(f"Error in Gemini intent classification: {e}")
 
-        # ✅ Last resort: fallback keyword logic
+        # Last resort: fallback
         print("⚙️ Using fallback intent classification.")
         return self._fallback_classify(query)
 
@@ -94,12 +89,9 @@ Respond ONLY with valid JSON:
 
         return {"intent": "faq", "confidence": 0.6, "reasoning": "General query"}
 
-    # -------------------- Response Generation -------------------- #
     def generate_response(self, query: str, context: str, intent: str) -> str:
-        """
-        Generates a helpful answer using Groq first, then Gemini, and finally fallback text if both fail.
-        """
-        # ✅ Try Groq first
+        """Generate response using Groq first, then Gemini, then fallback"""
+        # Try Groq first
         if hasattr(self, "groq") and self.groq.is_available():
             try:
                 result = self.groq.generate_response(query, context, intent)
@@ -109,55 +101,59 @@ Respond ONLY with valid JSON:
             except Exception as e:
                 print(f"Groq response generation error: {e}")
 
-        # ✅ Fallback to Gemini if available
+        # Fallback to Gemini
         if not self.is_available():
-            # Neither Groq nor Gemini available → use fallback text
             return f"Based on available information:\n\n{context[:500]}"
 
-        # Build prompt by intent
+        # Build prompt based on intent
         if intent == "rank_prediction":
-            prompt = f"""You are a friendly VIT admission assistant helping a 12th-grade student.
+            prompt = f"""You are a friendly VIT admission counselor helping a student understand their branch options.
 
-Student asked: "{query}"
+The student asked: "{query}"
 
-Admission data:
+Here is the cutoff data available:
 {context}
 
-Provide a helpful response (under 100 words) that:
-1. Answers their question about branch eligibility
-2. Mentions 2–3 realistic options
-3. Keeps a positive tone
-4. Suggests exploring other options
+Your task:
+1. Analyze the student's rank against the provided cutoff ranges
+2. Identify branches where their rank falls WITHIN the range (high chance)
+3. Identify branches where their rank is close to the range (possible with luck/waitlist)
+4. Explain in simple terms which branches are realistic options
+5. Suggest 2-3 best options based on their rank
+6. Keep a positive and encouraging tone
+7. Mention that cutoffs can vary and they should participate in counseling
+
+Keep your response under 150 words and friendly.
 
 Response:"""
 
         elif intent == "cutoff":
-            prompt = f"""You are a VIT admission assistant.
+            prompt = f"""You are a VIT admission assistant helping with cutoff questions.
 
 Student asked: "{query}"
 
 Cutoff information:
 {context}
 
-Provide a clear answer (under 80 words) that:
-1. Addresses their cutoff question
-2. Mentions specific ranks/categories
-3. Keeps a helpful tone
+Provide a clear, helpful answer (under 100 words) that:
+- Answers their specific cutoff question
+- Mentions relevant rank ranges and categories
+- Stays factual and helpful
 
 Response:"""
 
         elif intent == "faq":
-            prompt = f"""You are a friendly VIT admission assistant.
+            prompt = f"""You are a friendly VIT student answering questions about VIT.
 
 Student asked: "{query}"
 
-Information:
+Relevant information:
 {context}
 
-Provide a natural answer (under 100 words) that:
-1. Directly answers the question
-2. Uses simple language
-3. Sounds helpful
+Provide a natural, helpful answer (under 100 words) that:
+- Directly answers the question
+- Uses simple, friendly language
+- Is informative and encouraging
 
 Response:"""
 
@@ -166,7 +162,7 @@ Response:"""
 
 Context: {context}
 
-Provide a helpful response in under 80 words."""
+Provide a helpful response in under 100 words."""
 
         # Try Gemini
         try:
@@ -175,4 +171,4 @@ Provide a helpful response in under 80 words."""
             return response.text.strip()
         except Exception as e:
             print(f"Error generating response with Gemini: {e}")
-            return "I'm having trouble responding. Please try again."
+            return "I'm having trouble responding. Please try again or check the VIT official website."
