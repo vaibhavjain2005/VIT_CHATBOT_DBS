@@ -1,160 +1,121 @@
-Here is a suggested **README.md** file for the repository [vaibhavjain2005/VIT_CHATBOT_DBS](https://github.com/vaibhavjain2005/VIT_CHATBOT_DBS). You can adjust wording, add screenshots, or update details as needed.
+# VIT Admission Chatbot (VIT_CHATBOT_DBS)
 
----
+Lightweight README for local development, setup and deployment-ready repository.
 
-# VIT_CHATBOT_DBS
+## Overview
+A chatbot for VIT admissions that supports:
+- Intent classification (cutoff, rank_prediction, faq)
+- Rank prediction and cutoff lookup
+- Backend: FastAPI, MongoDB, embedding utilities, LLM adapters
+- Frontend: React app located in `admission-chatbot/`
+- Database seeding scripts in `scripts/`
 
-*A Chatbot for [VIT Vellore](https://www.vit.ac.in) (or similar) built using Python*
+## Repository layout
+- services/          — backend adapters (groq_service.py, mongodb_service.py, ...)
+- utils/             — embedding utilities
+- scripts/           — `seed.py`, `seed_database.py`
+- admission-chatbot/ — React frontend
+- requirements.txt   — Python dependencies
+- .env               — local environment variables (not checked in)
 
-## Table of Contents
+## Prerequisites
+- Python 3.11 (recommended)
+- Node.js + npm
+- MongoDB (local or Atlas)
+- Optional: Visual C++ Build Tools (if pip compiles packages on Windows)
 
-* [Project Overview](#project-overview)
-* [Features](#features)
-* [Architecture & Folder Structure](#architecture--folder-structure)
-* [Getting Started / Installation](#getting-started--installation)
-* [Usage](#usage)
-* [Environment & Dependencies](#environment--dependencies)
-* [Contributing](#contributing)
-* [License](#license)
-* [Acknowledgements](#acknowledgements)
+## Quick setup (Windows — PowerShell)
+1. Ensure Python 3.11 is available:
+   py -3.11 --version
 
----
-
-## Project Overview
-
-The **VIT_CHATBOT_DBS** project provides a simple yet effective chatbot implemented in Python, intended for usage by university stakeholders (students, staff) for common queries. The repository contains modules for models, services, scripts and utilities, all tied together in a main entry point `main.py`.
-The project aims to be easily deployable, maintainable and extendable for future improvements (e.g., additional intents, external integrations, GUI/web front-end).
-
----
-
-## Features
-
-* Natural Language Processing (NLP) based interaction via command-line (or simple UI)
-* Modular structure: separation of models (for intents, responses), services (handling logic), scripts (data processing), utils (helper functions)
-* Environment configuration via `.env` file (example present)
-* Clean dependency management via `requirements.txt` and `pyproject.toml`
-* Easy to run and test with minimal setup
-
----
-
-## Architecture & Folder Structure
-
-Here is a high-level breakdown of the repository structure:
-
-```
-/models        → Includes trained models, intent definitions, response datasets  
-/scripts       → Data processing, training scripts, utilities to build or update models  
-/services      → Business-logic classes/functions: intents routing, response generation  
-/utils         → Utility/helper modules (logging, configuration loader, common functions)  
-main.py        → Entry-point for running the chatbot  
-.env.example   → Example environment configuration file  
-requirements.txt → List of Python dependencies  
-pyproject.toml → Project metadata & build configuration  
-.gitignore     → Standard ignore file  
+2. Create and activate virtual environment:
+```powershell
+py -3.11 -m venv venv
+.\venv\Scripts\activate
 ```
 
-This structure enables clear separation of concerns, making it easier for you (or future contributors) to extend specific areas without impacting others.
-
----
-
-## Getting Started / Installation
-
-### Prerequisites
-
-* Python 3.8+ (or whichever version you have validated)
-* (Optional) Virtual environment (e.g., `venv`, `conda`) to isolate dependencies
-
-### Installation Steps
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/vaibhavjain2005/VIT_CHATBOT_DBS.git
-   cd VIT_CHATBOT_DBS
-   ```
-
-2. Create and activate a virtual environment (recommended):
-
-   ```bash
-   python3 -m venv env
-   source env/bin/activate      # On Windows: env\Scripts\activate
-   ```
-
-3. Install dependencies:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Copy the environment example and fill in your variables:
-
-   ```bash
-   cp .env.example .env
-   # Then edit .env with your config (keys, paths, etc)
-   ```
-
-### Running the Chatbot
-
-Once dependencies are installed and environment configured:
-
-```bash
-python main.py
+3. Upgrade packaging tools:
+```powershell
+python -m pip install --upgrade pip setuptools wheel
 ```
 
-This should launch the chatbot in your console (or configured UI) and allow you to interact.
+4. Install binary numeric packages first to avoid builds:
+```powershell
+python -m pip install --prefer-binary numpy scipy
+python -m pip install --prefer-binary -r requirements.txt
+```
 
----
+If pip tries to compile scikit-learn and errors with:
+`Microsoft Visual C++ 14.0 or greater is required.`  
+Either install Visual C++ Build Tools (Desktop development with C++) or use conda:
 
-## Usage
+Conda approach:
+```powershell
+conda create -n vitbot python=3.11
+conda activate vitbot
+conda install -c conda-forge scikit-learn numpy scipy
+pip install -r requirements.txt --no-deps
+```
 
-* Interact with the chatbot by typing queries; the bot uses the models under `/models` and logic in `/services` to generate responses.
-* To extend the bot with new intents/responses:
+## Environment variables
+Create a `.env` in project root with required keys:
+```
+MONGODB_URL=mongodb://localhost:27017/
+EMBEDDING_MODEL_NAME=all-mpnet-base-v2
+GROQ_API_KEY=...
+GOOGLE_API_KEY=...
+```
 
-  1. Add or update your intent-definition in the `models` folder.
-  2. Retrain/rebuild model via script in `/scripts`.
-  3. Update routing/service logic in `/services` as necessary.
-* Logging and utilities in `/utils` help track conversations, errors, and aid debugging.
+## Run backend
+Start MongoDB, then:
+```powershell
+# with venv activated
+python -m uvicorn main:app --reload
+# adjust entrypoint if different
+```
+API docs available at http://127.0.0.1:8000/docs
 
----
+## Seed database
+```powershell
+python scripts/seed.py
+# or
+python scripts/seed_database.py
+```
 
-## Environment & Dependencies
+## Frontend
+```powershell
+cd admission-chatbot
+npm install
+npm start
+# or npm run dev if using Vite
+```
+Configure frontend API base URL in `admission-chatbot/.env` or the app's environment file.
 
-Key technologies used:
+## Frontend compatibility notes
+- The frontend expects `rank_prediction` JSON; if backend format changes update parsing in components under `admission-chatbot/src/components/`.
+- Example tolerant parser is recommended to handle minor schema changes.
 
-* Python (core language)
-* Common libraries (e.g., for NLP, intent parsing) as listed in `requirements.txt`
-* `pyproject.toml` contains metadata, versioning, and build config
+## Troubleshooting
+- Wrong Python version in VS Code: Command Palette → Python: Select Interpreter or add `.vscode/settings.json` with:
+```json
+{
+  "python.defaultInterpreterPath": "C:\\Path\\To\\Python311\\python.exe"
+}
+```
+- Virtual env not activating: run PowerShell as Administrator and set:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+- scikit-learn build errors: install Visual C++ Build Tools or use conda as above.
 
-Make sure your runtime environment matches the version compatibility and you have the correct OS-specific dependencies installed (if any).
+## Testing & linting
+- Add tests under `tests/` and run with pytest
+- Use black/flake8 for formatting and linting
 
----
-
-## Contributing
-
-Contributions are very welcome! If you wish to contribute:
-
-1. Fork the repository.
-2. Create a feature branch (`git checkout -b feature/my-intent`).
-3. Make your changes (e.g., new intents, improved logic).
-4. Add tests if applicable.
-5. Submit a pull request referencing your changes and rationale.
-
-Please ensure code follows PEP8 style guidelines and the existing modular structure.
-
----
+## Deployment
+- Containerize with Docker (create Dockerfile for backend + frontend)
+- Use a managed MongoDB (Atlas) for production
+- Configure secrets as environment variables in deployment environment
 
 ## License
-
-
----
-
-## Acknowledgements
-
-* Thanks to the original author **Vaibhav Jain** and **Adrivid Mishra** for creating this project.
-* Inspired by typical chatbot frameworks and patterns (intent-based routing, modular structure).
-
-
----
-
-Feel free to modify or extend this README to match the exact behaviour of your project (e.g., add sections for testing, deployment, CI/CD, screenshots of UI). If you share some more details about what the chatbot does (platform, types of queries, UI), I can help tailor the README even further. Would you like me to add a section for **Deployment & Hosting**, or **Screenshots / GIF demo** as well?
-
+Add LICENSE file to specify project license.
