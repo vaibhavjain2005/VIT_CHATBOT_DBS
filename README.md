@@ -145,16 +145,14 @@ Please ensure code follows PEP8 style guidelines and the existing modular struct
 
 ## License
 
-*(Add license information here, e.g., MIT License, if applicable.)*
-If no license file is provided, you may wish to add one (e.g., `LICENSE` file) to clarify usage terms.
 
 ---
 
 ## Acknowledgements
 
-* Thanks to the original author **Vaibhav Jain** for creating this project.
+* Thanks to the original author **Vaibhav Jain** and **Adrivid Mishra** for creating this project.
 * Inspired by typical chatbot frameworks and patterns (intent-based routing, modular structure).
-* (Optional) Mention any third-party libraries or tutorials used.
+
 
 ---
 
